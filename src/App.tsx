@@ -1,14 +1,23 @@
 import { useRef, useState } from "react";
 import type { RefObject } from "react";
-import { Button, Flex, message } from "antd";
+import { Button, Grid, message } from "antd";
 import { useBIMViewer } from "./useBIMViewer";
+
+const { useBreakpoint } = Grid;
 
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { loadIfc, downloadFragments, loadFrag, isInitialized } = useBIMViewer(
-    containerRef as RefObject<HTMLDivElement>
-  );
+  const {
+    loadIfc,
+    downloadFragments,
+    loadFrag,
+    isInitialized,
+    machineFinder,
+    resetCustomHighlighter,
+    applyCustomHighlight,
+  } = useBIMViewer(containerRef as RefObject<HTMLDivElement>);
   const [loading, setLoading] = useState(false);
+  const screens = useBreakpoint();
 
   const loadFile = async (
     file: File,
@@ -50,6 +59,9 @@ function App() {
     input.click();
   };
 
+  // Определяем количество колонок в зависимости от размера экрана
+  const gridColumns = screens.xl ? 4 : screens.lg ? 3 : screens.md ? 2 : 1;
+
   return (
     <div
       style={{
@@ -72,37 +84,66 @@ function App() {
         }}
       />
 
-      <Flex
-        gap="middle"
-        vertical
+      {/* Сетка для кнопок */}
+      <div
         style={{
-          width: "100%",
-          height: "10rem",
-          position: "relative",
-          overflow: "hidden",
+          padding: "1rem",
+          backgroundColor: "#f5f5f5",
+          borderTop: "1px solid #d9d9d9",
         }}
       >
-        <Button
-          onClick={() => requestFile(".ifc", loadIfc, "ifc")}
-          loading={loading}
-          disabled={!isInitialized}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(${gridColumns}, 1fr)`,
+            gap: "12px",
+          }}
         >
-          Загрузить IFC
-        </Button>
-        <Button
-          onClick={() => requestFile(".frag", loadFrag, "frag")}
-          loading={loading}
-          disabled={!isInitialized}
-        >
-          Загрузить FRAG
-        </Button>
-        <Button onClick={downloadFragments} disabled={!isInitialized}>
-          Скачать FRAG
-        </Button>
-      </Flex>
+          <Button
+            onClick={() => requestFile(".ifc", loadIfc, "ifc")}
+            loading={loading}
+            disabled={!isInitialized}
+            block
+          >
+            Загрузить IFC
+          </Button>
+          <Button
+            onClick={() => requestFile(".frag", loadFrag, "frag")}
+            loading={loading}
+            disabled={!isInitialized}
+            block
+          >
+            Загрузить FRAG
+          </Button>
+          <Button onClick={downloadFragments} disabled={!isInitialized} block>
+            Скачать FRAG
+          </Button>
+          <Button onClick={machineFinder} disabled={!isInitialized} block>
+            Станки
+          </Button>
+          <Button
+            onClick={applyCustomHighlight}
+            disabled={!isInitialized}
+            block
+          >
+            Красный
+          </Button>
+          <Button
+            onClick={() => {
+              resetCustomHighlighter(false);
+            }}
+            disabled={!isInitialized}
+            block
+          >
+            Снять красный
+          </Button>
+        </div>
+      </div>
 
       {!isInitialized && (
-        <div style={{ marginTop: "10px" }}>Инициализация 3D Viewer...</div>
+        <div style={{ marginTop: "10px", padding: "0 1rem" }}>
+          Инициализация 3D Viewer...
+        </div>
       )}
     </div>
   );

@@ -1,19 +1,23 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as BUI from "@thatopen/ui";
 import * as OBC from "@thatopen/components";
 import type { RefObject } from "react";
 import * as OBCF from "@thatopen/components-front";
 import * as BUIC from "@thatopen/ui-obc";
 import * as OBF from "@thatopen/fragments";
+import * as THREE from "three";
 
 export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
   const componentsRef = useRef<OBC.Components | null>(null);
+  const highlighterRef = useRef<OBCF.Highlighter | null>(null);
   const worldRef = useRef<any>(null);
   const fragmentsRef = useRef<any>(null);
   const ifcRef = useRef<any>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const customHighlighterName = "Red";
+  const foundMachinesRef = useRef<OBC.ModelIdMap>({});
 
-  const loadIfc = async (data: ArrayBuffer, id: string) => {
+  const loadIfc = useCallback(async (data: ArrayBuffer, id: string) => {
     if (!ifcRef.current) {
       console.error("IFC Loader not initialized");
       return;
@@ -32,9 +36,9 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
       console.error("Error loading IFC:", error);
       throw error;
     }
-  };
+  }, []);
 
-  const loadFrag = async (data: ArrayBuffer, id: string) => {
+  const loadFrag = useCallback(async (data: ArrayBuffer, id: string) => {
     if (!fragmentsRef.current) {
       console.error("Fragments manager not initialized");
       return;
@@ -47,9 +51,9 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
       console.error("Error loading fragments:", error);
       throw error;
     }
-  };
+  }, []);
 
-  const downloadFragments = async () => {
+  const downloadFragments = useCallback(async () => {
     if (!fragmentsRef.current) {
       console.error("Fragments manager not initialized");
       return;
@@ -73,8 +77,95 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
     } catch (error) {
       console.error("Error downloading fragments:", error);
     }
-  };
+  }, []);
 
+  const machineFinder = async () => {
+    if (!componentsRef.current) {
+      return;
+    }
+
+    const finder = componentsRef.current.get(OBC.ItemsFinder);
+    const fragments = componentsRef.current.get(OBC.FragmentsManager);
+
+    finder?.create("Станки", [
+      {
+        categories: [/BUILDINGELEMENTPROXY/],
+        attributes: {
+          queries: [{ name: /Name/, value: /Станок|станок|ЧПУ|ОЦ/i }],
+        },
+      },
+    ]);
+
+    const getResult = async (name: string) => {
+      const finderQuery = finder?.list.get(name);
+      if (!finderQuery) return {};
+      const result = await finderQuery.test();
+      console.log("Finder result:", result);
+      return result;
+    };
+
+    try {
+      const modelIdMap = await getResult("Станки");
+      foundMachinesRef.current = modelIdMap; // Запись найденных станков для будущей окраски в applyCustomHighlight
+      const entries = Object.entries(modelIdMap);
+
+      const highlightMaterial: OBF.MaterialDefinition = {
+        color: new THREE.Color("gold"),
+        renderedFaces: OBF.RenderedFaces.TWO,
+        opacity: 1,
+        transparent: false,
+      };
+
+      for (const [modelUUID, elementIdsSet] of entries) {
+        const model = fragments.list.get(modelUUID);
+        if (!model) {
+          console.warn(`Model ${modelUUID} not found!`);
+          continue;
+        }
+
+        const elementIds = Array.from(elementIdsSet as Set<number>);
+
+        console.log(
+          `Highlighting ${elementIds.length} elements in model ${modelUUID}`
+        );
+
+        // Подсветка найденных станков в желтый цвет
+        await model.highlight(elementIds as number[], highlightMaterial);
+      }
+      // const hider = componentsRef.current.get(OBC.Hider);
+      // await hider?.isolate(modelIdMap);
+    } catch (error) {
+      console.error("Error in machineFinder:", error);
+    }
+  };
+  const applyCustomHighlight = async () => {
+    const highlighter = highlighterRef.current;
+    if (!highlighter) return;
+    if (!highlighter.styles.has(customHighlighterName)) return;
+    const selection = foundMachinesRef.current;
+    if (OBC.ModelIdMapUtils.isEmpty(selection)) {
+      console.warn("No machines found. Run machine finder first.");
+      return;
+    }
+
+    await highlighter.highlightByID(customHighlighterName, selection, false);
+
+    // If you want the selection to become empty after it is colorized
+    // with the custom highlighter, add the following code:
+    // await highlighter.clear("select");
+  };
+  const resetCustomHighlighter = async (onlySelected = true) => {
+    const highlighter = highlighterRef.current;
+    if (!highlighter) return;
+    if (!highlighter.styles.has(customHighlighterName)) return;
+    const modelIdMap = foundMachinesRef.current;
+    await highlighter.clear(
+      customHighlighterName,
+      onlySelected ? modelIdMap : undefined
+    );
+    // Just for demo purposes, let's also deselect the elements
+    await highlighter.clear("select");
+  };
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -106,6 +197,8 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
 
         components.init();
         components.get(OBC.Grids).create(world);
+
+        setIsInitialized(true);
 
         const ifcLoader = components.get(OBC.IfcLoader);
         await ifcLoader.setup({
@@ -140,41 +233,84 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
           fragments.core.update(true);
         });
 
-        setIsInitialized(true);
+        const finder = components.get(OBC.ItemsFinder);
 
-        const [propertiesTable, updatePropertiesTable] = BUIC.tables.itemsData({
-          components,
-          modelIdMap: {},
-        });
+        finder.create("Станки", [
+          {
+            categories: [/BUILDINGELEMENTPROXY/],
+            attributes: {
+              queries: [
+                { name: /Name/, value: /Станок/ },
+                { name: /Name/, value: /станок/ },
+                { name: /Name/, value: /ЧПУ/ },
+                { name: /Name/, value: /ОЦ/ },
+              ],
+            },
+          },
+        ]);
 
-        propertiesTable.preserveStructureOnFilter = true;
-        propertiesTable.indentationInText = false;
+        const getResult = async (name: string) => {
+          const finderQuery = finder.list.get(name);
+          if (!finderQuery) return {};
+          const result = await finderQuery.test();
+          console.log(result);
+          return result;
+        };
+
+        const modelIdMap = await getResult("Станки");
+        console.log(modelIdMap);
+        const hider = components.get(OBC.Hider);
+        await hider.isolate(modelIdMap);
 
         const highlighter = components.get(OBCF.Highlighter);
-        highlighter.setup({ world });
 
-        highlighter.events.select.onHighlight.add((fragmentIdMap) => {
-          const entries = Object.entries(fragmentIdMap);
-
-          for (const [model, fragmentIds] of entries) {
-            console.log("Выбрана модель:", model);
-            console.log("ID фрагментов:", fragmentIds);
-
-            // Получение свойств модели
-            const properties = model.properties;
-            if (properties) {
-              console.log("Свойства модели:", properties);
-            }
-
-            // Получение информации о геометрии
-            const geometry = model.geometry;
-            console.log("Геометрическая информация:", geometry);
-          }
+        highlighter.setup({
+          world,
+          selectMaterialDefinition: {
+            // you can change this to define the color of your highligthing
+            color: new THREE.Color("#2484f1"),
+            opacity: 1,
+            transparent: false,
+            renderedFaces: 0,
+          },
         });
 
-        highlighter.events.select.onClear.add(() =>
-          updatePropertiesTable({ modelIdMap: {} })
-        );
+        highlighter.events.select.onHighlight.add(async (modelIdMap) => {
+          console.log("Something was selected");
+
+          const promises = [];
+          for (const [modelId, localIds] of Object.entries(modelIdMap)) {
+            const model = fragments.list.get(modelId);
+            if (!model) continue;
+            promises.push(model.getItemsData([...localIds]));
+          }
+
+          const data = (await Promise.all(promises)).flat();
+          console.log(data);
+        });
+
+        highlighter.events.select.onClear.add(() => {
+          console.log("Selection was cleared");
+        });
+
+        highlighter.styles.set(customHighlighterName, {
+          color: new THREE.Color("red"),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: 0,
+        });
+
+        // You can also listen to highligth events
+        // with custom styles
+        highlighter.events[customHighlighterName].onHighlight.add((map) => {
+          console.log("Highligthed with red", map);
+        });
+
+        highlighter.events[customHighlighterName].onClear.add((map) => {
+          console.log("Red highlighter cleared", map);
+        });
+
+        highlighterRef.current = highlighter;
       } catch (error) {
         console.error("Failed to initialize BIM viewer:", error);
       }
@@ -186,9 +322,10 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
       // Cleanup
       if (componentsRef.current) {
         componentsRef.current.dispose();
+        setIsInitialized(false);
       }
     };
-  }, [containerRef]);
+  }, [componentsRef]);
 
   return {
     components: componentsRef.current,
@@ -198,5 +335,8 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
     loadIfc,
     downloadFragments,
     loadFrag,
+    machineFinder,
+    applyCustomHighlight,
+    resetCustomHighlighter,
   };
 }
