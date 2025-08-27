@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import * as BUI from "@thatopen/ui";
 import * as OBC from "@thatopen/components";
 import type { RefObject } from "react";
 import * as OBCF from "@thatopen/components-front";
-import * as BUIC from "@thatopen/ui-obc";
 import * as OBF from "@thatopen/fragments";
 import * as THREE from "three";
 
 export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
   const componentsRef = useRef<OBC.Components | null>(null);
   const highlighterRef = useRef<OBCF.Highlighter | null>(null);
-  const worldRef = useRef<any>(null);
-  const fragmentsRef = useRef<any>(null);
-  const ifcRef = useRef<any>(null);
+  const worldRef = useRef<OBC.SimpleWorld<
+    OBC.SimpleScene,
+    OBC.OrthoPerspectiveCamera,
+    OBC.SimpleRenderer
+  > | null>(null);
+  const fragmentsRef = useRef<OBC.FragmentsManager>(null);
+  const ifcRef = useRef<OBC.IfcLoader>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const customHighlighterName = "Red";
   const foundMachinesRef = useRef<OBC.ModelIdMap>({});
@@ -28,7 +30,7 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
       console.log(data);
       await ifcRef.current.load(buffer, false, id, {
         processData: {
-          progressCallback: (progress: any) =>
+          progressCallback: (progress: number) =>
             console.log(Math.floor(progress * 100)),
         },
       });
