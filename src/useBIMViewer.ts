@@ -6,6 +6,8 @@ import * as OBF from "@thatopen/fragments";
 import * as THREE from "three";
 
 export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
+  const animationTimeoutRef = useRef<number | null>(null);
+  const currentColorIndexRef = useRef(0);
   const componentsRef = useRef<OBC.Components | null>(null);
   const highlighterRef = useRef<OBCF.Highlighter | null>(null);
   const worldRef = useRef<OBC.SimpleWorld<
@@ -93,7 +95,7 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
       {
         categories: [/BUILDINGELEMENTPROXY/],
         attributes: {
-          queries: [{ name: /Name/, value: /Станок|станок|ЧПУ|ОЦ/i }],
+          queries: [{ name: /Name/, value: /Станок|станок|ЧПУ/i }],
         },
       },
     ]);
@@ -110,7 +112,7 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
       const modelIdMap = await getResult("Станки");
       foundMachinesRef.current = modelIdMap; // Запись найденных станков для будущей окраски в applyCustomHighlight
       const entries = Object.entries(modelIdMap);
-
+      console.log("entries:", entries);
       const highlightMaterial: OBF.MaterialDefinition = {
         color: new THREE.Color("gold"),
         renderedFaces: OBF.RenderedFaces.TWO,
@@ -130,6 +132,11 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
         console.log(
           `Highlighting ${elementIds.length} elements in model ${modelUUID}`
         );
+        // fragments.core.models.materials.list.onItemSet.add((item) => {
+        //   console.log(item.value);
+
+        //   // item.value.color = new THREE.Color(0, 0, 0);
+        // });
 
         // Подсветка найденных станков в желтый цвет
         await model.highlight(elementIds as number[], highlightMaterial);
@@ -144,7 +151,8 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
     const highlighter = highlighterRef.current;
     if (!highlighter) return;
     if (!highlighter.styles.has(customHighlighterName)) return;
-    const selection = foundMachinesRef.current;
+    // const selection = foundMachinesRef.current;
+    const selection = highlighter.selection.select;
     if (OBC.ModelIdMapUtils.isEmpty(selection)) {
       console.warn("No machines found. Run machine finder first.");
       return;
@@ -168,6 +176,83 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
     // Just for demo purposes, let's also deselect the elements
     await highlighter.clear("select");
   };
+  const startColorAnimation = () => {
+    if (animationTimeoutRef.current) {
+      console.warn("Animation is already running");
+      return;
+    }
+
+    const colorStyles = ["Red", "Yellow", "Green"];
+    const machinesMap = foundMachinesRef.current;
+
+    // Создаем массив всех элементов для анимации
+    const allElements: { modelId: string; elementId: number }[] = [];
+
+    for (const [modelId, elementIds] of Object.entries(machinesMap)) {
+      for (const elementId of elementIds as Set<number>) {
+        allElements.push({ modelId, elementId: Number(elementId) }); // Явно преобразуем в number
+      }
+    }
+
+    if (allElements.length === 0) {
+      console.warn("No machines found for animation");
+      return;
+    }
+
+    console.log("Total elements for animation:", allElements.length);
+
+    let currentElementIndex = 0;
+
+    const animate = async () => {
+      const highlighter = highlighterRef.current;
+      if (!highlighter) return;
+
+      // Получаем текущий элемент
+      const currentElement = allElements[currentElementIndex];
+
+      // Создаем временный ModelIdMap только для этого элемента
+      const tempMap: OBC.ModelIdMap = {
+        [currentElement.modelId]: new Set([currentElement.elementId]),
+      };
+
+      console.log(
+        `Animating element ${currentElementIndex + 1}/${allElements.length}:`,
+        currentElement
+      );
+
+      // Применяем текущий цвет к этому элементу
+      try {
+        await highlighter.highlightByID(
+          colorStyles[currentColorIndexRef.current],
+          tempMap,
+          false
+        );
+      } catch (error) {
+        console.error("Error highlighting element:", error, currentElement);
+      }
+
+      // Меняем цвет для следующего элемента
+      currentColorIndexRef.current =
+        (currentColorIndexRef.current + 1) % colorStyles.length;
+
+      // Переходим к следующему элементу
+      currentElementIndex = (currentElementIndex + 1) % allElements.length;
+
+      // Устанавливаем следующий вызов
+      animationTimeoutRef.current = window.setTimeout(animate, 100);
+    };
+
+    // Запускаем анимацию
+    animate();
+  };
+
+  const stopColorAnimation = () => {
+    if (animationTimeoutRef.current) {
+      clearTimeout(animationTimeoutRef.current);
+      animationTimeoutRef.current = null;
+    }
+  };
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -235,35 +320,6 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
           fragments.core.update(true);
         });
 
-        const finder = components.get(OBC.ItemsFinder);
-
-        finder.create("Станки", [
-          {
-            categories: [/BUILDINGELEMENTPROXY/],
-            attributes: {
-              queries: [
-                { name: /Name/, value: /Станок/ },
-                { name: /Name/, value: /станок/ },
-                { name: /Name/, value: /ЧПУ/ },
-                { name: /Name/, value: /ОЦ/ },
-              ],
-            },
-          },
-        ]);
-
-        const getResult = async (name: string) => {
-          const finderQuery = finder.list.get(name);
-          if (!finderQuery) return {};
-          const result = await finderQuery.test();
-          console.log(result);
-          return result;
-        };
-
-        const modelIdMap = await getResult("Станки");
-        console.log(modelIdMap);
-        const hider = components.get(OBC.Hider);
-        await hider.isolate(modelIdMap);
-
         const highlighter = components.get(OBCF.Highlighter);
 
         highlighter.setup({
@@ -301,7 +357,19 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
           transparent: false,
           renderedFaces: 0,
         });
+        highlighter.styles.set("Yellow", {
+          color: new THREE.Color("yellow"),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: 0,
+        });
 
+        highlighter.styles.set("Green", {
+          color: new THREE.Color("green"),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: 0,
+        });
         // You can also listen to highligth events
         // with custom styles
         highlighter.events[customHighlighterName].onHighlight.add((map) => {
@@ -326,6 +394,9 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
         componentsRef.current.dispose();
         setIsInitialized(false);
       }
+      if (animationTimeoutRef.current) {
+        clearTimeout(animationTimeoutRef.current);
+      }
     };
   }, [componentsRef]);
 
@@ -340,5 +411,7 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
     machineFinder,
     applyCustomHighlight,
     resetCustomHighlighter,
+    startColorAnimation,
+    stopColorAnimation,
   };
 }

@@ -15,6 +15,8 @@ function App() {
     machineFinder,
     resetCustomHighlighter,
     applyCustomHighlight,
+    startColorAnimation,
+    stopColorAnimation,
   } = useBIMViewer(containerRef as RefObject<HTMLDivElement>);
   const [loading, setLoading] = useState(false);
   const screens = useBreakpoint();
@@ -33,6 +35,7 @@ function App() {
     try {
       const id = file.name.replace(`.${type}`, "");
       const buffer = await file.arrayBuffer();
+      console.log(id);
       await loader(buffer, id);
       message.success(`Файл ${file.name} успешно загружен`);
     } catch (error) {
@@ -136,6 +139,12 @@ function App() {
             block
           >
             Снять красный
+          </Button>
+          <Button onClick={startColorAnimation} disabled={!isInitialized} block>
+            Светофор
+          </Button>
+          <Button onClick={stopColorAnimation} disabled={!isInitialized} block>
+            Отключить светофор
           </Button>
         </div>
       </div>
