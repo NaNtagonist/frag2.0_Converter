@@ -95,7 +95,7 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
       {
         categories: [/BUILDINGELEMENTPROXY/],
         attributes: {
-          queries: [{ name: /Name/, value: /Станок|станок|ЧПУ/i }],
+          queries: [{ name: /Name/, value: /_/i }],
         },
       },
     ]);
@@ -110,7 +110,61 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
 
     try {
       const modelIdMap = await getResult("Станки");
-      foundMachinesRef.current = modelIdMap; // Запись найденных станков для будущей окраски в applyCustomHighlight
+      foundMachinesRef.current = modelIdMap;
+      const entries1 = Object.entries(modelIdMap);
+      const promises1 = [];
+      for (const [modelUUID, elementIdsSet] of entries1) {
+        const modelMain = fragments.list.get(modelUUID);
+        console.log(modelMain);
+        // const entries2 = Object.entries(modelMain);
+        console.log(fragments.list.get(modelUUID));
+        const a = fragments.list.get(modelUUID);
+        if (a) {
+          console.log(a.getItemsData([...elementIdsSet]));
+          const b = a.getItemsData([...elementIdsSet]);
+          b.then(async (result) => {
+            console.log(result, typeof result);
+            const c = Object.values(result);
+            for (let i = 0; i < c.length; i++) {
+              const data = c[i];
+              console.log(data);
+              console.log(data["_guid"].value);
+              // const flatData = data.flat();
+              // console.log(flatData[0]._guid.value);
+            }
+          }).catch((err) => {
+            console.error("Ошибка:", err);
+          });
+        }
+      }
+      // let entries2 = Object.entries(modelMain);
+      // for (const [modelId1, localIds1] of entries2) {
+      //   console.log(localIds1);
+      //   const moel1 = fragments.list.get(modelId1);
+      //   if (!moel1) continue;
+      //   console.log(moel1);
+      //   //    const data = (await Promise.all(moel1.getItemsData([...localIds]))).flat();
+      //   // console.log(data[0]._guid.value);
+      // }
+
+      const values1 = Object.values(modelIdMap);
+      const array1 = [...values1[0]];
+      console.log(array1);
+      for (let x = 0; x <= array1.length; x++) {
+        const promises = [];
+        for (const [modelId, localIds] of Object.entries(array1[x])) {
+          console.log(array1[x]);
+          console.log(Object.entries(array1[x]));
+          const model = fragments.list.get(modelId);
+          console.log(model);
+          if (!model) continue;
+          promises.push(model.getItemsData([...localIds]));
+        }
+
+        const data = (await Promise.all(promises)).flat();
+        console.log(data[0]._guid.value);
+      }
+      // Запись найденных станков для будущей окраски в applyCustomHighlight
       const entries = Object.entries(modelIdMap);
       console.log("entries:", entries);
       const highlightMaterial: OBF.MaterialDefinition = {
@@ -151,14 +205,15 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
     const highlighter = highlighterRef.current;
     if (!highlighter) return;
     if (!highlighter.styles.has(customHighlighterName)) return;
-    // const selection = foundMachinesRef.current;
+    const selection1 = foundMachinesRef.current;
+    console.log(selection1);
     const selection = highlighter.selection.select;
-    if (OBC.ModelIdMapUtils.isEmpty(selection)) {
+    if (OBC.ModelIdMapUtils.isEmpty(selection1)) {
       console.warn("No machines found. Run machine finder first.");
       return;
     }
 
-    await highlighter.highlightByID(customHighlighterName, selection, false);
+    await highlighter.highlightByID(customHighlighterName, selection1, false);
 
     // If you want the selection to become empty after it is colorized
     // with the custom highlighter, add the following code:
@@ -313,6 +368,9 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
         world.camera.controls.addEventListener("rest", () =>
           fragments.core.update(true)
         );
+        world.camera.controls.setTarget(0, 0, 0);
+        world.camera.set("Orbit");
+
         // const aboba = components.get(OBC.Items)
         fragments.list.onItemSet.add(({ value: model }) => {
           model.useCamera(world.camera.three);
@@ -332,19 +390,23 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
             renderedFaces: 0,
           },
         });
-
+        // const qwe = type as OBC.ModelIdMap;d
         highlighter.events.select.onHighlight.add(async (modelIdMap) => {
           console.log("Something was selected");
-
+          console.log(modelIdMap);
           const promises = [];
           for (const [modelId, localIds] of Object.entries(modelIdMap)) {
+            console.log(modelIdMap);
+            console.log(Object.entries(modelIdMap));
             const model = fragments.list.get(modelId);
+            console.log(model);
             if (!model) continue;
+            console.log(model.getItem());
             promises.push(model.getItemsData([...localIds]));
           }
 
           const data = (await Promise.all(promises)).flat();
-          console.log(data);
+          console.log(data[0]._guid.value);
         });
 
         highlighter.events.select.onClear.add(() => {
@@ -399,7 +461,9 @@ export function useBIMViewer(containerRef: RefObject<HTMLDivElement>) {
       }
     };
   }, [componentsRef]);
-
+  useEffect(() => {
+    console.log(worldRef.current?.camera);
+  }, [worldRef.current?.camera.three.position]);
   return {
     components: componentsRef.current,
     world: worldRef.current,
